@@ -10,7 +10,7 @@ from datetime import datetime
 
 from .models import Game, TimeRange, Config, AngleMapping, ProcessingStatus
 from .camera_detection import detect_gopro_devices, get_all_camera_files
-from .config import load_config, save_config, update_side, update_aws_config
+from .config import load_config, save_config, update_side, update_aws_config, get_config_source
 from .utils import generate_game_uuid, validate_time_range, cleanup_temp_files
 from .video_processor import extract_segment, get_resolution, is_4k_or_higher, compress_video
 from .s3_uploader import upload_to_s3, validate_aws_credentials
