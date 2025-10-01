@@ -1,0 +1,8 @@
+{
+    "side": null,
+    "aws_access_key": "",
+    "aws_secret_key": "",
+    "s3_bucket": "basketball-games",
+    "s3_region": "us-east-1",
+    "gpu_available": false
+}

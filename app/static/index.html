@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏀 Basketball Video Processing Pipeline</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏀 Basketball Video Processing Pipeline</h1>
+            <div class="status-bar">
+                <div class="side-selector">
+                    <label for="side-select">Side:</label>
+                    <select id="side-select">
+                        <option value="">Select Side</option>
+                        <option value="LEFT">LEFT SIDE</option>
+                        <option value="RIGHT">RIGHT SIDE</option>
+                    </select>
+                    <button id="set-side-btn">Set Side</button>
+                </div>
+                <div class="status-indicator">
+                    <span>Status: <span id="system-status">Loading...</span></span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Configuration Section -->
+        <section id="config-section" class="card">
+            <h2>Configuration</h2>
+            <div class="config-grid">
+                <div class="config-item">
+                    <h3>AWS Configuration</h3>
+                    <div class="form-group">
+                        <label>Access Key:</label>
+                        <input type="text" id="aws-access-key" placeholder="AWS Access Key">
+                    </div>
+                    <div class="form-group">
+                        <label>Secret Key:</label>
+                        <input type="password" id="aws-secret-key" placeholder="AWS Secret Key">
+                    </div>
+                    <div class="form-group">
+                        <label>S3 Bucket:</label>
+                        <input type="text" id="s3-bucket" value="basketball-games">
+                    </div>
+                    <div class="form-group">
+                        <label>Region:</label>
+                        <input type="text" id="s3-region" value="us-east-1">
+                    </div>
+                    <button id="save-aws-btn">Save AWS Config</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Camera Detection Section -->
+        <section id="camera-section" class="card">
+            <h2>Detected Cameras</h2>
+            <div id="camera-list">
+                <p>Loading cameras...</p>
+            </div>
+            <button id="refresh-cameras-btn">Refresh Cameras</button>
+        </section>
+
+        <!-- Video Files Section -->
+        <section id="files-section" class="card">
+            <h2>Video Files</h2>
+            <div id="video-files-list">
+                <p>No files loaded</p>
+            </div>
+            <button id="load-files-btn">Load Video Files</button>
+        </section>
+
+        <!-- Game Management Section -->
+        <section id="game-section" class="card">
+            <h2>Game Management</h2>
+
+            <!-- Add Game Form -->
+            <div class="add-game-form">
+                <h3>Add New Game</h3>
+                <div class="form-group">
+                    <label>Start Time (HH:MM:SS):</label>
+                    <input type="text" id="start-time" placeholder="00:15:30" pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}">
+                </div>
+                <div class="form-group">
+                    <label>End Time (HH:MM:SS):</label>
+                    <input type="text" id="end-time" placeholder="00:58:45" pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}">
+                </div>
+                <button id="add-game-btn">Add Game</button>
+            </div>
+
+            <!-- Games List -->
+            <div class="games-list">
+                <h3>Defined Games</h3>
+                <div id="games-table-container">
+                    <table id="games-table">
+                        <thead>
+                            <tr>
+                                <th>UUID</th>
+                                <th>Start</th>
+                                <th>End</th>
+                                <th>Duration</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="games-table-body">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="processing-controls">
+                <button id="start-processing-btn" class="primary-btn">Start Processing All Games</button>
+                <button id="clear-games-btn" class="danger-btn">Clear All Games</button>
+            </div>
+        </section>
+
+        <!-- Processing Progress Section -->
+        <section id="progress-section" class="card" style="display: none;">
+            <h2>Processing Progress</h2>
+            <div id="overall-progress">
+                <div class="progress-bar">
+                    <div id="overall-progress-fill" class="progress-fill"></div>
+                </div>
+                <span id="overall-progress-text">0%</span>
+            </div>
+            <div id="detailed-progress">
+                <!-- Populated dynamically -->
+            </div>
+        </section>
+
+        <!-- Log Section -->
+        <section id="log-section" class="card">
+            <h2>Activity Log</h2>
+            <div id="activity-log">
+                <p class="log-entry">Pipeline initialized</p>
+            </div>
+            <button id="clear-log-btn">Clear Log</button>
+        </section>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
