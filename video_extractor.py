@@ -102,13 +102,12 @@ class VideoExtractor:
         try:
             logger.info(f"Extracting segment {start_time} to {end_time} from {Path(input_path).name}")
 
-            # Use ffmpeg-python for better control
+            # Use ffmpeg-python with stream copy for lossless extraction
             input_stream = ffmpeg.input(input_path, ss=start_time, to=end_time)
             output_stream = ffmpeg.output(
                 input_stream,
                 output_path,
-                vcodec='libx264',
-                acodec='aac',
+                c='copy',  # Copy streams without re-encoding
                 **{'avoid_negative_ts': 'make_zero'}
             )
 
@@ -123,39 +122,85 @@ class VideoExtractor:
             return True
         except ffmpeg.Error as e:
             logger.error(f"FFmpeg error: {e}")
+            if hasattr(e, 'stderr') and e.stderr:
+                logger.error(f"FFmpeg stderr: {e.stderr.decode()}")
             return False
         except Exception as e:
             logger.error(f"Unexpected error during video extraction: {e}")
             return False
 
+    def generate_presigned_url(self, s3_key: str, expiration: int = 3600) -> str:
+        """Generate a pre-signed URL for S3 object"""
+        try:
+            url = self.s3_client.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': self.bucket, 'Key': s3_key},
+                ExpiresIn=expiration
+            )
+            return url
+        except ClientError as e:
+            logger.error(f"Failed to generate pre-signed URL for {s3_key}: {e}")
+            raise
+
+    async def extract_from_s3_direct(self, s3_key: str, output_path: str, start_time: str, end_time: str) -> bool:
+        """Extract video segment directly from S3 using pre-signed URL"""
+        try:
+            # Processing video segment
+
+            # Generate pre-signed URL for direct access
+            presigned_url = self.generate_presigned_url(s3_key)
+
+            # Use ffmpeg with the pre-signed URL as input and stream copy for lossless extraction
+            input_stream = ffmpeg.input(presigned_url, ss=start_time, to=end_time)
+            output_stream = ffmpeg.output(
+                input_stream,
+                output_path,
+                c='copy',  # Copy streams without re-encoding
+                **{'avoid_negative_ts': 'make_zero'}
+            )
+
+            # Run in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor() as executor:
+                await loop.run_in_executor(
+                    executor,
+                    lambda: ffmpeg.run(output_stream, overwrite_output=True, quiet=True)
+                )
+
+            return True
+        except ffmpeg.Error as e:
+            logger.error(f"FFmpeg error during direct extraction: {e}")
+            if hasattr(e, 'stderr') and e.stderr:
+                logger.error(f"FFmpeg stderr: {e.stderr.decode()}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error during direct extraction: {e}")
+            return False
+
     async def process_angle(self, angle_name: str, s3_source_key: str, game_name: str,
                           start_time: str, end_time: str) -> bool:
-        """Process a single camera angle"""
+        """Process a single camera angle using direct S3 streaming"""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_dir_path = Path(temp_dir)
 
-            # Local file paths
-            input_file = temp_dir_path / f"input_{angle_name}.mp4"
+            # Local output file (use MP4 container for HEVC compatibility)
             output_file = temp_dir_path / f"{game_name}_{angle_name}.mp4"
 
-            # S3 output path
+            # S3 output path (use MP4 container for HEVC compatibility)
             s3_output_key = f"{game_name}/{game_name}_{angle_name}.mp4"
 
             try:
-                # Step 1: Download source video
-                logger.info(f"Processing {angle_name} angle...")
-                if not await self.download_with_progress(s3_source_key, str(input_file)):
+                # Processing angle
+
+                # Step 1: Extract video segment directly from S3
+                if not await self.extract_from_s3_direct(s3_source_key, str(output_file), start_time, end_time):
                     return False
 
-                # Step 2: Extract video segment
-                if not await self.extract_video_segment(str(input_file), str(output_file), start_time, end_time):
-                    return False
-
-                # Step 3: Upload extracted segment
+                # Step 2: Upload extracted segment
                 if not await self.upload_with_progress(str(output_file), s3_output_key):
                     return False
 
-                logger.info(f"Successfully processed {angle_name} -> s3://{self.bucket}/{s3_output_key}")
+                logger.info(f"✓ {angle_name} completed")
                 return True
 
             except Exception as e:
@@ -185,7 +230,7 @@ class VideoExtractor:
             else:
                 logger.error(f"Failed to process {angle_name}")
 
-        logger.info(f"Successfully processed {success_count}/4 angles")
+        logger.info(f"Completed {success_count}/4 angles")
         return success_count == 4
 
 @click.command()
