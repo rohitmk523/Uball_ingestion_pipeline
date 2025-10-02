@@ -35,6 +35,7 @@ ENV/
 
 # Temporary files
 temp/
+temp_videos/
 *.tmp
 *.temp
 

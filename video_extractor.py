@@ -142,16 +142,77 @@ class VideoExtractor:
             logger.error(f"Failed to generate pre-signed URL for {s3_key}: {e}")
             raise
 
-    async def extract_from_s3_direct(self, s3_key: str, output_path: str, start_time: str, end_time: str) -> bool:
-        """Extract video segment directly from S3 using pre-signed URL"""
+    async def download_segment_with_better_progress(self, s3_key: str, local_path: str, start_time: str, end_time: str) -> bool:
+        """Download only the segment using FFmpeg with better progress estimation"""
         try:
-            # Processing video segment
+            logger.info(f"Downloading segment {start_time} to {end_time} from {Path(s3_key).name}")
 
             # Generate pre-signed URL for direct access
-            presigned_url = self.generate_presigned_url(s3_key)
+            presigned_url = self.generate_presigned_url(s3_key, expiration=7200)  # 2 hours
 
-            # Use ffmpeg with the pre-signed URL as input and stream copy for lossless extraction
+            # Calculate segment duration for better progress estimation
+            start_seconds = self._time_to_seconds(start_time)
+            end_seconds = self._time_to_seconds(end_time)
+            segment_duration = end_seconds - start_seconds
+
+            # Use ffmpeg to download and extract the segment
             input_stream = ffmpeg.input(presigned_url, ss=start_time, to=end_time)
+            output_stream = ffmpeg.output(
+                input_stream,
+                local_path,
+                c='copy',  # Copy streams without re-encoding
+                **{'avoid_negative_ts': 'make_zero'}
+            )
+
+            # Better progress tracking with time-based estimation
+            with tqdm(total=100, unit='%', desc=f"📥 Downloading {Path(s3_key).name} segment") as pbar:
+                loop = asyncio.get_event_loop()
+
+                def run_with_better_progress():
+                    start_time_process = time.time()
+                    process = ffmpeg.run_async(output_stream, overwrite_output=True, quiet=True)
+
+                    while process.poll() is None:
+                        elapsed = time.time() - start_time_process
+
+                        # More realistic progress estimation
+                        # For stream copy, expect roughly 1-2x real-time for network streaming
+                        estimated_total_time = segment_duration * 1.5  # 1.5x segment duration
+
+                        if estimated_total_time > 0:
+                            progress = min(98, (elapsed / estimated_total_time) * 100)
+                        else:
+                            progress = min(98, elapsed * 2)  # Fallback
+
+                        pbar.n = int(progress)
+                        pbar.refresh()
+                        time.sleep(1)  # Update every second
+
+                    # Wait for completion
+                    process.wait()
+                    pbar.n = 100
+                    pbar.refresh()
+
+                    if process.returncode != 0:
+                        raise ffmpeg.Error('ffmpeg', '', '')
+
+                await loop.run_in_executor(None, run_with_better_progress)
+
+            return True
+        except ffmpeg.Error as e:
+            logger.error(f"FFmpeg error during segment download: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error during segment download: {e}")
+            return False
+
+    async def extract_segment_offline(self, input_path: str, output_path: str, start_time: str, end_time: str) -> bool:
+        """Extract video segment from local file - fast offline processing"""
+        try:
+            logger.info(f"⚡ Processing segment {start_time} to {end_time} offline")
+
+            # Local FFmpeg processing - much faster
+            input_stream = ffmpeg.input(input_path, ss=start_time, to=end_time)
             output_stream = ffmpeg.output(
                 input_stream,
                 output_path,
@@ -159,7 +220,7 @@ class VideoExtractor:
                 **{'avoid_negative_ts': 'make_zero'}
             )
 
-            # Run in thread pool to avoid blocking
+            # Run in thread pool
             loop = asyncio.get_event_loop()
             with ThreadPoolExecutor() as executor:
                 await loop.run_in_executor(
@@ -169,54 +230,87 @@ class VideoExtractor:
 
             return True
         except ffmpeg.Error as e:
-            logger.error(f"FFmpeg error during direct extraction: {e}")
+            logger.error(f"FFmpeg error during offline extraction: {e}")
             if hasattr(e, 'stderr') and e.stderr:
                 logger.error(f"FFmpeg stderr: {e.stderr.decode()}")
             return False
         except Exception as e:
-            logger.error(f"Unexpected error during direct extraction: {e}")
+            logger.error(f"Unexpected error during offline extraction: {e}")
             return False
+
+    def _time_to_seconds(self, time_str: str) -> float:
+        """Convert HH:MM:SS to seconds"""
+        h, m, s = map(float, time_str.split(':'))
+        return h * 3600 + m * 60 + s
 
     async def process_angle(self, angle_name: str, s3_source_key: str, game_name: str,
                           start_time: str, end_time: str) -> bool:
-        """Process a single camera angle using direct S3 streaming"""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_dir_path = Path(temp_dir)
+        """Process a single camera angle from local video file in temp_videos/"""
 
-            # Local output file (use MP4 container for HEVC compatibility)
-            output_file = temp_dir_path / f"{game_name}_{angle_name}.mp4"
+        # Create temp directory in the repo
+        repo_temp_dir = Path("temp_videos")
+        repo_temp_dir.mkdir(exist_ok=True)
 
-            # S3 output path (use MP4 container for HEVC compatibility)
-            s3_output_key = f"{game_name}/{game_name}_{angle_name}.mp4"
+        try:
+            # Extract filename from S3 key for local file lookup
+            local_video_filename = Path(s3_source_key).name  # e.g., "9-23 FL.m4v"
+            local_video_path = repo_temp_dir / local_video_filename
 
-            try:
-                # Processing angle
+            # Output segment file path
+            segment_file = repo_temp_dir / f"{game_name}_{angle_name}.mp4"
+            s3_output_key = f"Games/09-23-2025/{game_name}/{game_name}_{angle_name}.mp4"
 
-                # Step 1: Check if video already exists in S3
-                try:
-                    self.s3_client.head_object(Bucket=self.bucket, Key=s3_output_key)
-                    logger.info(f"✓ {angle_name} already exists - skipped")
-                    return True
-                except ClientError as e:
-                    if e.response['Error']['Code'] != '404':
-                        logger.error(f"Error checking if {s3_output_key} exists: {e}")
-                        return False
-                    # File doesn't exist, continue with processing
+            logger.info(f"🎬 Processing {angle_name}")
 
-                # Step 2: Extract video segment directly from S3
-                if not await self.extract_from_s3_direct(s3_source_key, str(output_file), start_time, end_time):
-                    return False
-
-                # Step 3: Upload extracted segment
-                if not await self.upload_with_progress(str(output_file), s3_output_key):
-                    return False
-
-                logger.info(f"✓ {angle_name} completed")
-                return True
-
-            except Exception as e:
-                logger.error(f"Failed to process {angle_name}: {e}")
+            # Step 1: Check if local video file exists
+            if not local_video_path.exists():
+                logger.error(f"❌ Local video file not found: {local_video_path}")
+                logger.error(f"Please ensure {local_video_filename} is downloaded to temp_videos/ folder")
                 return False
+
+            # Step 2: Check if output already exists in S3
+            try:
+                self.s3_client.head_object(Bucket=self.bucket, Key=s3_output_key)
+                logger.info(f"✓ {angle_name} already exists in S3 - skipped")
+                return True
+            except ClientError as e:
+                if e.response['Error']['Code'] != '404':
+                    logger.error(f"Error checking if {s3_output_key} exists: {e}")
+                    return False
+                # File doesn't exist, continue with processing
+
+            # Step 3: Extract segment from local video file
+            logger.info(f"⚡ Extracting segment from local file: {local_video_filename}")
+            if not await self.extract_segment_offline(str(local_video_path), str(segment_file), start_time, end_time):
+                return False
+
+            # Step 4: Upload processed segment
+            logger.info(f"📤 Uploading {angle_name} segment...")
+            if not await self.upload_with_progress(str(segment_file), s3_output_key):
+                # Cleanup segment file on error
+                if segment_file.exists():
+                    segment_file.unlink()
+                return False
+
+            # Step 5: Cleanup generated segment file (keep original local videos)
+            logger.info(f"🧹 Cleaning up segment file...")
+            if segment_file.exists():
+                segment_file.unlink()
+                logger.info(f"   Removed segment: {segment_file.name}")
+
+            logger.info(f"✅ {angle_name} completed successfully")
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ Failed to process {angle_name}: {e}")
+            # Cleanup on any error
+            try:
+                segment_file = repo_temp_dir / f"{game_name}_{angle_name}.mp4"
+                if segment_file.exists():
+                    segment_file.unlink()
+            except:
+                pass
+            return False
 
     async def extract_all_angles(self, game_name: str, start_time: str, end_time: str,
                                angle_keys: dict) -> bool:
@@ -314,7 +408,7 @@ def main(game_name: str, start_time: str, end_time: str, far_left_key: str,
         click.echo("=" * 60)
         if success:
             click.echo(f"✅ All angles processed successfully in {duration:.1f} seconds!")
-            click.echo(f"Videos saved to: s3://{config.s3_bucket}/{game_name}/")
+            click.echo(f"Videos saved to: s3://{config.s3_bucket}/Games/09-23-2025/{game_name}/")
         else:
             click.echo(f"❌ Some angles failed to process. Check logs for details.")
             sys.exit(1)
