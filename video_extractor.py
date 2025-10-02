@@ -129,7 +129,7 @@ class VideoExtractor:
             logger.error(f"Unexpected error during video extraction: {e}")
             return False
 
-    def generate_presigned_url(self, s3_key: str, expiration: int = 3600) -> str:
+    def generate_presigned_url(self, s3_key: str, expiration: int = 86400) -> str:
         """Generate a pre-signed URL for S3 object"""
         try:
             url = self.s3_client.generate_presigned_url(
@@ -192,11 +192,22 @@ class VideoExtractor:
             try:
                 # Processing angle
 
-                # Step 1: Extract video segment directly from S3
+                # Step 1: Check if video already exists in S3
+                try:
+                    self.s3_client.head_object(Bucket=self.bucket, Key=s3_output_key)
+                    logger.info(f"✓ {angle_name} already exists - skipped")
+                    return True
+                except ClientError as e:
+                    if e.response['Error']['Code'] != '404':
+                        logger.error(f"Error checking if {s3_output_key} exists: {e}")
+                        return False
+                    # File doesn't exist, continue with processing
+
+                # Step 2: Extract video segment directly from S3
                 if not await self.extract_from_s3_direct(s3_source_key, str(output_file), start_time, end_time):
                     return False
 
-                # Step 2: Upload extracted segment
+                # Step 3: Upload extracted segment
                 if not await self.upload_with_progress(str(output_file), s3_output_key):
                     return False
 
