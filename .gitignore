@@ -62,5 +62,24 @@ Thumbs.db
 # Test media
 test_media/
 
+# Video files (all formats)
+*.mp4
+*.m4v
+*.mov
+*.avi
+*.mkv
+*.flv
+*.wmv
+*.webm
+*.mpeg
+*.mpg
+*.3gp
+*.ts
+*.mts
+*.m2ts
+
+
 # Config with sensitive data (use .env instead)
 config_production.json
+
+
