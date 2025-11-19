@@ -36,10 +36,19 @@ function setupEventListeners() {
     document.getElementById('process-all-btn').addEventListener('click', processAllGames);
 
     // Local file input
-    document.getElementById('load-local-btn').addEventListener('click', () => {
-        document.getElementById('local-file-input').click();
-    });
-    document.getElementById('local-file-input').addEventListener('change', handleLocalFiles);
+    const loadLocalBtn = document.getElementById('load-local-btn');
+    const fileInput = document.getElementById('local-file-input');
+
+    if (loadLocalBtn && fileInput) {
+        loadLocalBtn.addEventListener('click', () => {
+            console.log('Load Local Files button clicked');
+            fileInput.click();
+        });
+        fileInput.addEventListener('change', handleLocalFiles);
+        console.log('Local file event listeners registered');
+    } else {
+        console.error('Missing elements:', { loadLocalBtn, fileInput });
+    }
 }
 
 async function loadSystemStats() {
@@ -225,8 +234,9 @@ function switchAngle(angle) {
     const infoHtml = `
         <div class="info-card">
             <div class="info-label">Source</div>
-            <div class="info-value">HTTP Stream</div>
-            <p style="color: #666; margin-top: 5px;">💡 Use "Load Local Files" for zero buffering</p>
+            <div class="info-value">HTTP Range Stream</div>
+            <p style="color: #28a745; margin-top: 5px;">✓ Smooth seeking enabled</p>
+            <p style="font-size: 11px; color: #666; margin-top: 3px;">Using byte-range requests</p>
         </div>
         <div class="info-card">
             <div class="info-label">Resolution</div>
@@ -541,9 +551,14 @@ function validateTimeFormat(time) {
 
 // Handle local file selection (blob URL approach for zero buffering)
 function handleLocalFiles(event) {
+    console.log('handleLocalFiles called', event);
     const files = Array.from(event.target.files);
+    console.log('Selected files:', files.length, files);
 
-    if (files.length === 0) return;
+    if (files.length === 0) {
+        console.log('No files selected');
+        return;
+    }
 
     // Parse filenames to detect angles (same pattern as backend: MM-DD ANGLE.ext)
     const anglePattern = /(\d{1,2})-(\d{1,2})\s+(FR|FL|NL|NR)(?:_\w+)?/i;

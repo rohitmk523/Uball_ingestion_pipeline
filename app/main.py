@@ -1,6 +1,6 @@
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse, Response
 import json
 import asyncio
 import logging
@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
 import time
+import os
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -526,8 +527,13 @@ async def get_video_preview_url(date: str, angle: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/input-videos/stream/{date}/{angle}")
-async def stream_video(date: str, angle: str):
-    """Stream video file for preview (supports HTML5 video player with byte-range requests)"""
+async def stream_video(date: str, angle: str, request: Request):
+    """
+    Stream video file with HTTP Range Request support for smooth seeking.
+
+    Supports partial content requests (206) for instant seeking without buffering,
+    perfect for remote deployments on EC2/Jetson Nano.
+    """
     try:
         videos = get_cached_videos()
         matching = [v for v in videos if v.date == date and v.angle_short == angle]
@@ -536,15 +542,77 @@ async def stream_video(date: str, angle: str):
             raise HTTPException(status_code=404, detail="Video not found")
 
         video = matching[0]
+        video_path = Path(video.path)
 
-        # Return video file for streaming
-        from fastapi.responses import FileResponse
+        if not video_path.exists():
+            raise HTTPException(status_code=404, detail="Video file not found on disk")
+
+        file_size = video_path.stat().st_size
+        range_header = request.headers.get("range")
+
+        # Determine media type based on file extension
+        media_type_map = {
+            '.mp4': 'video/mp4',
+            '.m4v': 'video/mp4',
+            '.mov': 'video/quicktime',
+            '.avi': 'video/x-msvideo',
+            '.mkv': 'video/x-matroska',
+        }
+        media_type = media_type_map.get(video_path.suffix.lower(), 'video/mp4')
+
+        # Handle range requests for seeking
+        if range_header:
+            # Parse range header (format: "bytes=start-end")
+            range_match = range_header.replace("bytes=", "").split("-")
+            start = int(range_match[0]) if range_match[0] else 0
+            end = int(range_match[1]) if len(range_match) > 1 and range_match[1] else file_size - 1
+
+            # Validate range
+            if start >= file_size or end >= file_size or start > end:
+                raise HTTPException(
+                    status_code=416,
+                    detail="Requested range not satisfiable",
+                    headers={"Content-Range": f"bytes */{file_size}"}
+                )
+
+            chunk_size = end - start + 1
+
+            def iter_file():
+                """Stream file in chunks for the requested range"""
+                with open(video_path, "rb") as video_file:
+                    video_file.seek(start)
+                    remaining = chunk_size
+                    while remaining > 0:
+                        read_size = min(8192, remaining)  # Read in 8KB chunks
+                        data = video_file.read(read_size)
+                        if not data:
+                            break
+                        remaining -= len(data)
+                        yield data
+
+            headers = {
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(chunk_size),
+                "Content-Type": media_type,
+                "Cache-Control": "public, max-age=3600",
+            }
+
+            return StreamingResponse(
+                iter_file(),
+                status_code=206,  # Partial Content
+                headers=headers,
+                media_type=media_type
+            )
+
+        # No range request - return full file
         return FileResponse(
-            video.path,
-            media_type="video/mp4",
+            video_path,
+            media_type=media_type,
             headers={
                 "Accept-Ranges": "bytes",
-                "Content-Type": "video/mp4"
+                "Content-Type": media_type,
+                "Cache-Control": "public, max-age=3600",
             }
         )
 
