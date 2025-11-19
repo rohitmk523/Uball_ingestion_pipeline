@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from typing import Optional
 from .models import Config
@@ -6,22 +7,41 @@ from .models import Config
 CONFIG_FILE = "config.json"
 
 def load_config() -> Config:
-    """Load configuration from file"""
+    """
+    Load configuration from environment variables first, then config.json
+    Environment variables take priority over config file
+    """
+    # Load from config file first
     config_path = Path(CONFIG_FILE)
 
-    if not config_path.exists():
+    if config_path.exists():
+        try:
+            with open(config_path, 'r') as f:
+                data = json.load(f)
+            config = Config(**data)
+        except Exception as e:
+            # Use default if config is corrupted
+            config = Config()
+    else:
         # Create default config
-        default_config = Config()
-        save_config(default_config)
-        return default_config
+        config = Config()
+        save_config(config)
 
-    try:
-        with open(config_path, 'r') as f:
-            data = json.load(f)
-        return Config(**data)
-    except Exception as e:
-        # Return default if config is corrupted
-        return Config()
+    # Override with environment variables if present
+    # This allows .env file to take priority
+    if os.getenv('AWS_ACCESS_KEY_ID'):
+        config.aws_access_key = os.getenv('AWS_ACCESS_KEY_ID')
+
+    if os.getenv('AWS_SECRET_ACCESS_KEY'):
+        config.aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+    if os.getenv('AWS_S3_BUCKET'):
+        config.s3_bucket = os.getenv('AWS_S3_BUCKET')
+
+    if os.getenv('AWS_S3_REGION'):
+        config.s3_region = os.getenv('AWS_S3_REGION')
+
+    return config
 
 def save_config(config: Config):
     """Save configuration to file"""

@@ -1,4 +1,7 @@
+# Environment variables
 .env
+
+# Python cache
 *__pycache__/
 *__pycache__*
 *.pyc
@@ -9,4 +12,55 @@
 *.pywz
 *.pyzw
 *.pyzwz
-temp_videos
+
+# Temporary directories
+temp/
+temp_videos/
+logs/
+*.log
+
+# Video files (all formats)
+*.mp4
+*.m4v
+*.mov
+*.avi
+*.mkv
+*.flv
+*.wmv
+*.webm
+*.mpeg
+*.mpg
+*.3gp
+*.ts
+*.mts
+*.m2ts
+
+# Incomplete downloads
+*.crdownload
+*.part
+*.download
+
+# Large files
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# Input/output directories (contains large video files)
+input/
+output/
+corrected/
+test_media/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

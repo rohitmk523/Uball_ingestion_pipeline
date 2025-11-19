@@ -68,6 +68,70 @@ def get_resolution(file_path: str) -> Tuple[Optional[int], Optional[int]]:
         logger.error(f"Error getting resolution: {e}")
         return None, None
 
+def get_video_metadata_extended(file_path: str) -> dict:
+    """
+    Get extended video metadata (duration, resolution, codec, etc.)
+
+    Returns:
+        Dict with keys: duration, width, height, codec, fps, bitrate
+    """
+    cmd = [
+        'ffprobe', '-v', 'quiet',
+        '-print_format', 'json',
+        '-show_format', '-show_streams',
+        file_path
+    ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            raise RuntimeError(f"ffprobe failed: {result.stderr}")
+
+        data = json.loads(result.stdout)
+
+        # Extract duration from format
+        duration = float(data['format'].get('duration', 0))
+
+        # Extract video stream info
+        width, height = None, None
+        codec = None
+        fps = None
+
+        for stream in data['streams']:
+            if stream['codec_type'] == 'video':
+                width = stream.get('width')
+                height = stream.get('height')
+                codec = stream.get('codec_name')
+
+                # Calculate FPS
+                if 'r_frame_rate' in stream:
+                    try:
+                        num, den = stream['r_frame_rate'].split('/')
+                        fps = int(num) / int(den) if int(den) != 0 else None
+                    except:
+                        fps = None
+
+                break
+
+        if width is None or height is None:
+            raise ValueError("No video stream found")
+
+        return {
+            'duration': duration,
+            'width': width,
+            'height': height,
+            'codec': codec,
+            'fps': fps,
+            'bitrate': int(data['format'].get('bit_rate', 0))
+        }
+
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("ffprobe timeout")
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"Failed to parse ffprobe output: {e}")
+    except Exception as e:
+        raise RuntimeError(f"Error getting video metadata: {e}")
+
 def is_4k_or_higher(width: int, height: int) -> bool:
     """
     Check if video is 4K or higher resolution
