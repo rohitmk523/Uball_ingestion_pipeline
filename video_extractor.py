@@ -243,29 +243,51 @@ class VideoExtractor:
         h, m, s = map(float, time_str.split(':'))
         return h * 3600 + m * 60 + s
 
-    async def process_angle(self, angle_name: str, s3_source_key: str, game_name: str,
+    async def process_angle(self, angle_name: str, local_folder: str, game_name: str,
                           start_time: str, end_time: str) -> bool:
-        """Process a single camera angle from local video file in temp_videos/"""
+        """Process a single camera angle from local video file in specified folder"""
 
-        # Create temp directory in the repo
+        # Use the provided local folder
+        local_folder_path = Path(local_folder)
+        
+        # Create temp directory in the repo for output segments
         repo_temp_dir = Path("temp_videos")
         repo_temp_dir.mkdir(exist_ok=True)
 
         try:
-            # Extract filename from S3 key for local file lookup
-            local_video_filename = Path(s3_source_key).name  # e.g., "9-23 FL.m4v"
-            local_video_path = repo_temp_dir / local_video_filename
+            # Map angle names to expected file patterns in the folder
+            angle_patterns = {
+                'farleft': ['*FL*', '*Far Left*', '*far*left*'],
+                'farright': ['*FR*', '*Far Right*', '*far*right*'],
+                'nearleft': ['*NL*', '*Near Left*', '*near*left*'],
+                'nearright': ['*NR*', '*Near Right*', '*near*right*']
+            }
+            
+            # Find the video file for this angle
+            local_video_path = None
+            for pattern in angle_patterns.get(angle_name, []):
+                matches = list(local_folder_path.glob(pattern))
+                if matches:
+                    local_video_path = matches[0]
+                    break
+            
+            if not local_video_path:
+                logger.error(f"❌ No video file found for {angle_name} in {local_folder}")
+                return False
 
             # Output segment file path
             segment_file = repo_temp_dir / f"{game_name}_{angle_name}.mp4"
-            s3_output_key = f"Games/09-23-2025/{game_name}/{game_name}_{angle_name}.mp4"
+            
+            # Always upload to main path (remove 'corrected/' from S3 key if present)
+            clean_folder = local_folder.replace('corrected/', '') if local_folder.startswith('corrected/') else local_folder
+            s3_output_key = f"Games/{clean_folder}/{game_name}/{game_name}_{angle_name}.mp4"
 
             logger.info(f"🎬 Processing {angle_name}")
 
-            # Step 1: Check if local video file exists
+            # Step 1: Confirm the video file was found and exists
             if not local_video_path.exists():
                 logger.error(f"❌ Local video file not found: {local_video_path}")
-                logger.error(f"Please ensure {local_video_filename} is downloaded to temp_videos/ folder")
+                logger.error(f"Please ensure video files are in the {local_folder}/ folder")
                 return False
 
             # Step 2: Check if output already exists in S3
@@ -280,7 +302,7 @@ class VideoExtractor:
                 # File doesn't exist, continue with processing
 
             # Step 3: Extract segment from local video file
-            logger.info(f"⚡ Extracting segment from local file: {local_video_filename}")
+            logger.info(f"⚡ Extracting segment from local file: {local_video_path.name}")
             if not await self.extract_segment_offline(str(local_video_path), str(segment_file), start_time, end_time):
                 return False
 
@@ -313,12 +335,13 @@ class VideoExtractor:
             return False
 
     async def extract_all_angles(self, game_name: str, start_time: str, end_time: str,
-                               angle_keys: dict) -> bool:
+                               local_folder: str) -> bool:
         """Process all 4 camera angles concurrently"""
         tasks = []
+        angle_names = ['farleft', 'farright', 'nearleft', 'nearright']
 
-        for angle_name, s3_key in angle_keys.items():
-            task = self.process_angle(angle_name, s3_key, game_name, start_time, end_time)
+        for angle_name in angle_names:
+            task = self.process_angle(angle_name, local_folder, game_name, start_time, end_time)
             tasks.append(task)
 
         # Run all tasks concurrently
@@ -327,7 +350,7 @@ class VideoExtractor:
         # Check results
         success_count = 0
         for i, result in enumerate(results):
-            angle_name = list(angle_keys.keys())[i]
+            angle_name = angle_names[i]
             if isinstance(result, Exception):
                 logger.error(f"Failed to process {angle_name}: {result}")
             elif result:
@@ -342,12 +365,8 @@ class VideoExtractor:
 @click.option('--game-name', required=True, help='Name of the game (e.g., game1)')
 @click.option('--start-time', required=True, help='Start time in HH:MM:SS format')
 @click.option('--end-time', required=True, help='End time in HH:MM:SS format')
-@click.option('--far-left-key', required=True, help='S3 key for far left camera video')
-@click.option('--far-right-key', required=True, help='S3 key for far right camera video')
-@click.option('--near-left-key', required=True, help='S3 key for near left camera video')
-@click.option('--near-right-key', required=True, help='S3 key for near right camera video')
-def main(game_name: str, start_time: str, end_time: str, far_left_key: str,
-         far_right_key: str, near_left_key: str, near_right_key: str):
+@click.option('--local-folder', required=True, help='Local folder containing video files (e.g., 09-26-2025)')
+def main(game_name: str, start_time: str, end_time: str, local_folder: str):
     """Extract basketball game segments from all 4 camera angles"""
 
     # Validate time format
@@ -383,13 +402,20 @@ def main(game_name: str, start_time: str, end_time: str, far_left_key: str,
         click.echo(f"Error loading configuration: {e}")
         sys.exit(1)
 
-    # Prepare angle keys
-    angle_keys = {
-        'farleft': far_left_key,
-        'farright': far_right_key,
-        'nearleft': near_left_key,
-        'nearright': near_right_key
-    }
+    # Check for corrected folder first, then fall back to original
+    corrected_folder = f"corrected/{local_folder}"
+    corrected_folder_path = Path(corrected_folder)
+    original_folder_path = Path(local_folder)
+    
+    if corrected_folder_path.exists():
+        actual_folder = corrected_folder
+        click.echo(f"📁 Using corrected folder: {corrected_folder}")
+    elif original_folder_path.exists():
+        actual_folder = local_folder
+        click.echo(f"📁 Using original folder: {local_folder}")
+    else:
+        click.echo(f"Error: Neither corrected folder '{corrected_folder}' nor original folder '{local_folder}' exists.")
+        sys.exit(1)
 
     # Create extractor and run
     extractor = VideoExtractor(config)
@@ -400,7 +426,7 @@ def main(game_name: str, start_time: str, end_time: str, far_left_key: str,
         click.echo(f"Target bucket: s3://{config.s3_bucket}")
         click.echo("=" * 60)
 
-        success = await extractor.extract_all_angles(game_name, start_time, end_time, angle_keys)
+        success = await extractor.extract_all_angles(game_name, start_time, end_time, actual_folder)
 
         end_total = time.time()
         duration = end_total - start_total
@@ -408,7 +434,8 @@ def main(game_name: str, start_time: str, end_time: str, far_left_key: str,
         click.echo("=" * 60)
         if success:
             click.echo(f"✅ All angles processed successfully in {duration:.1f} seconds!")
-            click.echo(f"Videos saved to: s3://{config.s3_bucket}/Games/09-23-2025/{game_name}/")
+            clean_folder = local_folder.replace('corrected/', '') if local_folder.startswith('corrected/') else local_folder
+            click.echo(f"Videos saved to: s3://{config.s3_bucket}/Games/{clean_folder}/{game_name}/")
         else:
             click.echo(f"❌ Some angles failed to process. Check logs for details.")
             sys.exit(1)

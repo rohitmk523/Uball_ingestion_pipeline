@@ -1,0 +1,49 @@
+# Basketball Pipeline - Docker Ignore
+
+# Environment files
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+env/
+ENV/
+
+# Temporary files
+temp/
+temp_videos/
+*.tmp
+*.temp
+
+# Logs
+logs/
+*.log
+
+# Test media (build separately)
+test_media/
+
+# Git
+.git/
+.gitignore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Documentation (optional)
+*.md
+!README.md
+
+# Config with sensitive data
+config.json
+

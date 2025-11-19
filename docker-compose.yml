@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  basketball-pipeline:
+    build: .
+    container_name: basketball-pipeline
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount configuration
+      - ./config.json:/app/config.json
+      - ./.env:/app/.env
+      
+      # Mount logs for persistence
+      - ./logs:/app/logs
+      
+      # Mount temp directory for video processing
+      - ./temp:/app/temp
+      
+      # Mount test media (for EC2 simulation)
+      - ./test_media:/app/test_media
+      
+      # Mount simulated GoPro devices
+      - /tmp/gopro1:/tmp/gopro1:ro
+      - /tmp/gopro2:/tmp/gopro2:ro
+    
+    environment:
+      # AWS Configuration (override with .env)
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_S3_BUCKET=${AWS_S3_BUCKET:-basketball-games}
+      - AWS_S3_REGION=${AWS_S3_REGION:-us-east-1}
+      
+      # App Configuration
+      - BASKETBALL_SIDE=${BASKETBALL_SIDE}
+      - GPU_AVAILABLE=${GPU_AVAILABLE:-false}
+      - PRODUCTION=${PRODUCTION:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    
+    restart: unless-stopped
+    
+    # GPU support (uncomment for GPU instances)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  default:
+    name: basketball-network
+
