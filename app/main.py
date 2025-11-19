@@ -5,8 +5,9 @@ import json
 import asyncio
 import logging
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
 from datetime import datetime
+import time
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -41,6 +42,31 @@ processing_active = False
 # Input video workflow state
 input_video_jobs: Dict[str, GameJob] = {}  # game_id -> GameJob
 input_processing_active = False
+
+# Video scan cache (to avoid re-scanning on every video stream request)
+_video_scan_cache = {
+    'videos': None,
+    'timestamp': 0,
+    'ttl': 60  # Cache for 60 seconds
+}
+
+def get_cached_videos():
+    """Get cached video scan results or perform new scan if cache expired"""
+    current_time = time.time()
+
+    if (_video_scan_cache['videos'] is None or
+        current_time - _video_scan_cache['timestamp'] > _video_scan_cache['ttl']):
+        # Cache expired or empty, perform new scan
+        _video_scan_cache['videos'] = scan_input_directory("input")
+        _video_scan_cache['timestamp'] = current_time
+        logger.debug(f"Video scan cache refreshed ({len(_video_scan_cache['videos'])} videos)")
+
+    return _video_scan_cache['videos']
+
+def invalidate_video_cache():
+    """Invalidate video scan cache (call when files change)"""
+    _video_scan_cache['videos'] = None
+    _video_scan_cache['timestamp'] = 0
 
 class ProgressTracker:
     def __init__(self):
@@ -431,9 +457,18 @@ async def process_single_angle(game: Game, camera_file: str, angle: str, config:
 # ============================================================================
 
 @app.get("/api/input-videos/scan")
-async def scan_input_videos():
-    """Scan /input directory for video files grouped by date"""
+async def scan_input_videos(force_refresh: bool = False):
+    """
+    Scan /input directory for video files grouped by date
+
+    Args:
+        force_refresh: If True, bypass cache and force fresh scan
+    """
     try:
+        # Force refresh cache if requested
+        if force_refresh:
+            invalidate_video_cache()
+
         videos_by_date = get_videos_by_date("input")
 
         # Add validation info for each date
@@ -465,7 +500,7 @@ async def get_video_preview_url(date: str, angle: str):
         angle: Angle short name (FR, FL, NL, NR)
     """
     try:
-        videos = scan_input_directory("input")
+        videos = get_cached_videos()
 
         # Find matching video
         matching = [v for v in videos if v.date == date and v.angle_short == angle]
@@ -492,9 +527,9 @@ async def get_video_preview_url(date: str, angle: str):
 
 @app.get("/api/input-videos/stream/{date}/{angle}")
 async def stream_video(date: str, angle: str):
-    """Stream video file for preview (supports HTML5 video player)"""
+    """Stream video file for preview (supports HTML5 video player with byte-range requests)"""
     try:
-        videos = scan_input_directory("input")
+        videos = get_cached_videos()
         matching = [v for v in videos if v.date == date and v.angle_short == angle]
 
         if not matching:

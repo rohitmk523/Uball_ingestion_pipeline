@@ -201,10 +201,14 @@
         <!-- Video Scanner -->
         <section class="card">
             <h2>📂 Input Videos</h2>
-            <button id="scan-btn" class="btn btn-primary">Scan /input Directory</button>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <button id="scan-btn" class="btn btn-primary">Scan /input Directory</button>
+                <button id="load-local-btn" class="btn btn-secondary">📁 Load Local Files (Zero Buffering)</button>
+            </div>
+            <input type="file" id="local-file-input" accept="video/*" multiple style="display: none;">
 
             <div id="scan-results" style="margin-top: 20px;">
-                <p style="color: #666;">Click "Scan" to detect videos</p>
+                <p style="color: #666;">Click "Scan" to detect videos from /input directory, or "Load Local Files" to browse for videos directly (recommended for smooth playback)</p>
             </div>
         </section>
 
