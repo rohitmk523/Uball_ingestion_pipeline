@@ -88,11 +88,20 @@ echo "🚀 Starting video transfer..."
 echo "   This may take several hours depending on file size and network speed"
 echo "   Transfer is resumable - you can Ctrl+C and re-run this script to continue"
 echo ""
+echo "📊 Files to transfer:"
+find "$LOCAL_DIR" -type f \( -name "*.mp4" -o -name "*.m4v" -o -name "*.mov" \) -exec ls -lh {} \; | awk '{print "   " $9 " (" $5 ")"}'
+echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-# Use rsync with progress and partial transfer support
-rsync -avzP --partial \
+# Use rsync with enhanced progress display
+# -a: archive mode (preserves permissions, timestamps, etc.)
+# -v: verbose
+# -h: human-readable sizes
+# -z: compress during transfer
+# --progress: show progress per file with transfer speed and ETA
+# --partial: keep partially transferred files (resumable)
+rsync -avhz --progress --partial \
     -e "ssh -i ${KEY_NAME}.pem -o StrictHostKeyChecking=no" \
     "$LOCAL_DIR/" \
     "$REMOTE_USER@$EC2_IP:$REMOTE_DIR/"
