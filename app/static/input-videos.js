@@ -519,7 +519,7 @@ function switchMode(mode) {
 // Load videos for Sync Mode (first 60 seconds only)
 async function loadSyncVideos(date) {
     const dateVideos = scannedVideos[date].videos;
-    
+
     // Get all 4 players
     syncPlayers = {
         FR: document.getElementById('video-player-fr'),
@@ -527,10 +527,10 @@ async function loadSyncVideos(date) {
         NR: document.getElementById('video-player-nr'),
         NL: document.getElementById('video-player-nl')
     };
-    
+
     // Load offsets for this date if they exist
     await loadOffsets(date);
-    
+
     // Load videos with fragment identifier for first 60 seconds
     for (const angle of ['FR', 'FL', 'NL', 'NR']) {
         const video = dateVideos.find(v => v.angle_short === angle);
@@ -538,22 +538,42 @@ async function loadSyncVideos(date) {
             // Use HTTP Range Request with time fragment
             syncPlayers[angle].src = `/api/input-videos/stream/${date}/${angle}#t=0,60`;
             syncPlayers[angle].load();
-            
-            // Apply saved offset
+
+            // Apply saved offset to both slider and number input
             if (angle !== 'FR') {
-                document.getElementById(`offset-${angle.toLowerCase()}`).value = videoOffsets[angle];
+                const offsetValue = videoOffsets[angle];
+                document.getElementById(`offset-${angle.toLowerCase()}`).value = offsetValue;
+                document.getElementById(`offset-${angle.toLowerCase()}-slider`).value = offsetValue;
             }
         }
+    }
+}
+
+// Update offset display when slider is moved
+function updateOffsetDisplay(angle) {
+    const slider = document.getElementById(`offset-${angle.toLowerCase()}-slider`);
+    const numberInput = document.getElementById(`offset-${angle.toLowerCase()}`);
+    numberInput.value = slider.value;
+}
+
+// Handle Enter key press on offset number input
+function handleOffsetEnter(event, angle) {
+    if (event.key === 'Enter') {
+        applyOffset(angle);
     }
 }
 
 // Apply offset to a specific angle
 function applyOffset(angle) {
     const offsetInput = document.getElementById(`offset-${angle.toLowerCase()}`);
+    const slider = document.getElementById(`offset-${angle.toLowerCase()}-slider`);
     const offsetValue = parseFloat(offsetInput.value);
-    
+
+    // Sync slider with number input
+    slider.value = offsetValue;
+
     videoOffsets[angle] = offsetValue;
-    
+
     // If FR is playing, seek other videos to maintain sync
     const frPlayer = syncPlayers.FR;
     if (frPlayer && !frPlayer.paused) {
@@ -602,20 +622,83 @@ function pauseAll() {
     }
 }
 
+// Auto Sync using audio synchronization
+async function autoSync() {
+    if (!currentDate) {
+        alert('No date selected');
+        return;
+    }
+
+    const statusDiv = document.getElementById('auto-sync-status');
+    const autoSyncBtn = document.getElementById('auto-sync-btn');
+
+    try {
+        autoSyncBtn.disabled = true;
+        statusDiv.textContent = '🎵 Analyzing audio from all angles...';
+        statusDiv.style.color = '#17a2b8';
+
+        const response = await fetch(`${API_BASE}/auto-sync/${currentDate}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ duration: 60 }) // Use first 60 seconds
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Auto sync failed');
+        }
+
+        const data = await response.json();
+        console.log('Auto sync result:', data);
+
+        // Update offsets with calculated values
+        if (data.offsets) {
+            for (const angle of ['FL', 'NL', 'NR']) {
+                if (data.offsets[angle] !== undefined) {
+                    videoOffsets[angle] = data.offsets[angle];
+                    document.getElementById(`offset-${angle.toLowerCase()}`).value = data.offsets[angle].toFixed(2);
+                    document.getElementById(`offset-${angle.toLowerCase()}-slider`).value = data.offsets[angle].toFixed(2);
+                }
+            }
+
+            statusDiv.textContent = `✅ Auto sync successful! Offsets applied.`;
+            statusDiv.style.color = '#28a745';
+
+            // Auto-save the new offsets
+            setTimeout(() => {
+                saveOffsets();
+                setTimeout(() => {
+                    statusDiv.textContent = '';
+                }, 3000);
+            }, 1000);
+        }
+
+    } catch (error) {
+        console.error('Error during auto sync:', error);
+        statusDiv.textContent = `❌ ${error.message}`;
+        statusDiv.style.color = '#dc3545';
+        setTimeout(() => {
+            statusDiv.textContent = '';
+        }, 5000);
+    } finally {
+        autoSyncBtn.disabled = false;
+    }
+}
+
 // Save offsets to backend
 async function saveOffsets() {
     if (!currentDate) {
         alert('No date selected');
         return;
     }
-    
+
     try {
         const response = await fetch(`${API_BASE}/offsets/${currentDate}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ offsets: videoOffsets })
         });
-        
+
         if (response.ok) {
             alert('✅ Offsets saved successfully!');
         } else {

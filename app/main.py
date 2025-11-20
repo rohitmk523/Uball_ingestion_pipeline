@@ -22,6 +22,7 @@ from .video_processor import extract_segment, get_resolution, is_4k_or_higher, c
 from .s3_uploader import upload_to_s3, validate_aws_credentials
 from .input_video_scanner import scan_input_directory, get_videos_by_date, validate_date_videos
 from .parallel_processor import ParallelProcessor, GameJob, ResourceManager
+from .audio_sync import synchronize_videos, AudioSyncError
 
 # Setup logging
 logging.basicConfig(
@@ -718,6 +719,99 @@ async def get_offsets(date: str):
     except Exception as e:
         logger.error(f"Error loading offsets: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/input-videos/auto-sync/{date}")
+async def auto_sync_videos(date: str, request: dict):
+    """
+    Automatically synchronize videos for a specific date using audio analysis.
+
+    This endpoint extracts audio from the first N seconds of each angle,
+    performs cross-correlation to find time offsets, and returns the
+    calculated synchronization offsets.
+
+    Request body:
+    {
+        "duration": 60  // Seconds of audio to analyze (default: 60)
+    }
+
+    Returns:
+    {
+        "success": true,
+        "offsets": {
+            "FL": 0.5,
+            "NL": -0.25,
+            "NR": 1.0
+        },
+        "message": "Audio synchronization successful"
+    }
+    """
+    try:
+        duration = request.get('duration', 60)
+
+        # Validate duration
+        if duration < 10 or duration > 300:
+            raise HTTPException(
+                status_code=400,
+                detail="Duration must be between 10 and 300 seconds"
+            )
+
+        # Get videos for this date
+        videos = get_cached_videos()
+        date_videos = [v for v in videos if v.date == date]
+
+        if not date_videos:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No videos found for date {date}"
+            )
+
+        # Build video files dictionary
+        video_files = {}
+        available_angles = []
+
+        for angle in ['FR', 'FL', 'NL', 'NR']:
+            matching = [v for v in date_videos if v.angle_short == angle]
+            if matching:
+                video_files[angle] = matching[0].path
+                available_angles.append(angle)
+
+        # Check if we have FR (reference)
+        if 'FR' not in video_files:
+            raise HTTPException(
+                status_code=400,
+                detail="FR (Front Right) angle is required as reference for auto-sync"
+            )
+
+        # Check if we have at least 2 videos
+        if len(video_files) < 2:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Need at least 2 videos for synchronization. Found: {', '.join(available_angles)}"
+            )
+
+        logger.info(f"Starting audio synchronization for date {date} with angles: {', '.join(available_angles)}")
+
+        # Perform audio synchronization
+        offsets = synchronize_videos(video_files, duration=duration, reference_angle='FR')
+
+        logger.info(f"Audio sync completed for date {date}. Offsets: {offsets}")
+
+        return {
+            'success': True,
+            'offsets': offsets,
+            'message': f'Audio synchronization successful using {duration}s of audio',
+            'analyzed_angles': available_angles,
+            'reference_angle': 'FR'
+        }
+
+    except HTTPException:
+        raise
+    except AudioSyncError as e:
+        logger.error(f"Audio sync error for date {date}: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error during auto-sync for date {date}: {e}")
+        raise HTTPException(status_code=500, detail=f"Auto-sync failed: {str(e)}")
 
 @app.get("/api/input-videos/jobs")
 async def list_input_jobs():

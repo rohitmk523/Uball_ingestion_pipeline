@@ -353,9 +353,13 @@
                     <button id="sync-pause-all-btn" class="btn btn-secondary" onclick="pauseAll()" style="display: none;">
                         ⏸️ Pause All
                     </button>
+                    <button id="auto-sync-btn" class="btn" style="background: #6f42c1; color: white;" onclick="autoSync()">
+                        🎵 Auto Sync
+                    </button>
                     <button id="save-offsets-btn" class="btn btn-success" onclick="saveOffsets()">
                         💾 Save Offsets
                     </button>
+                    <div id="auto-sync-status" style="margin-left: 10px; font-size: 14px; color: #666;"></div>
                 </div>
 
                 <div class="video-grid">
@@ -371,39 +375,48 @@
                     <!-- FL (Top Right) -->
                     <div class="video-grid-item">
                         <div class="video-label">FL (Front Left)</div>
-                        <video id="video-player-fl" class="video-player-sync" controls>
+                        <video id="video-player-fl" class="video-player-sync">
                             <source src="" type="video/mp4">
                         </video>
                         <div class="offset-control">
-                            <label>Offset (seconds):</label>
+                            <label>Offset:</label>
+                            <input type="range" id="offset-fl-slider" min="-30" max="30" step="0.01" value="0"
+                                   style="width: 150px;" oninput="updateOffsetDisplay('FL')">
                             <input type="number" id="offset-fl" value="0" min="-30" max="30" step="0.01"
-                                   onchange="applyOffset('FL')" style="width: 100px;">
+                                   style="width: 80px;" onkeypress="handleOffsetEnter(event, 'FL')">
+                            <span style="font-size: 12px; color: #666;">Press Enter</span>
                         </div>
                     </div>
 
                     <!-- NR (Bottom Left) -->
                     <div class="video-grid-item">
                         <div class="video-label">NR (Net Right)</div>
-                        <video id="video-player-nr" class="video-player-sync" controls>
+                        <video id="video-player-nr" class="video-player-sync">
                             <source src="" type="video/mp4">
                         </video>
                         <div class="offset-control">
-                            <label>Offset (seconds):</label>
+                            <label>Offset:</label>
+                            <input type="range" id="offset-nr-slider" min="-30" max="30" step="0.01" value="0"
+                                   style="width: 150px;" oninput="updateOffsetDisplay('NR')">
                             <input type="number" id="offset-nr" value="0" min="-30" max="30" step="0.01"
-                                   onchange="applyOffset('NR')" style="width: 100px;">
+                                   style="width: 80px;" onkeypress="handleOffsetEnter(event, 'NR')">
+                            <span style="font-size: 12px; color: #666;">Press Enter</span>
                         </div>
                     </div>
 
                     <!-- NL (Bottom Right) -->
                     <div class="video-grid-item">
                         <div class="video-label">NL (Net Left)</div>
-                        <video id="video-player-nl" class="video-player-sync" controls>
+                        <video id="video-player-nl" class="video-player-sync">
                             <source src="" type="video/mp4">
                         </video>
                         <div class="offset-control">
-                            <label>Offset (seconds):</label>
+                            <label>Offset:</label>
+                            <input type="range" id="offset-nl-slider" min="-30" max="30" step="0.01" value="0"
+                                   style="width: 150px;" oninput="updateOffsetDisplay('NL')">
                             <input type="number" id="offset-nl" value="0" min="-30" max="30" step="0.01"
-                                   onchange="applyOffset('NL')" style="width: 100px;">
+                                   style="width: 80px;" onkeypress="handleOffsetEnter(event, 'NL')">
+                            <span style="font-size: 12px; color: #666;">Press Enter</span>
                         </div>
                     </div>
                 </div>
