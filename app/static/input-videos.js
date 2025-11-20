@@ -8,11 +8,6 @@ let scannedVideos = {};
 let jobs = [];
 let ws = null;
 
-// Local file handling (blob URLs for zero buffering)
-let localFiles = {}; // Store File objects by angle
-let blobUrls = {}; // Store blob URLs to revoke when switching
-let useLocalFiles = false; // Track if using local files vs HTTP stream
-
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
     await loadSystemStats();
@@ -34,21 +29,6 @@ function setupEventListeners() {
     document.getElementById('mark-end-btn').addEventListener('click', markEndTime);
     document.getElementById('add-game-btn').addEventListener('click', addGame);
     document.getElementById('process-all-btn').addEventListener('click', processAllGames);
-
-    // Local file input
-    const loadLocalBtn = document.getElementById('load-local-btn');
-    const fileInput = document.getElementById('local-file-input');
-
-    if (loadLocalBtn && fileInput) {
-        loadLocalBtn.addEventListener('click', () => {
-            console.log('Load Local Files button clicked');
-            fileInput.click();
-        });
-        fileInput.addEventListener('change', handleLocalFiles);
-        console.log('Local file event listeners registered');
-    } else {
-        console.error('Missing elements:', { loadLocalBtn, fileInput });
-    }
 }
 
 async function loadSystemStats() {
@@ -177,48 +157,6 @@ function switchAngle(angle) {
     });
 
     const player = document.getElementById('video-player');
-
-    // If using local files with blob URLs
-    if (useLocalFiles && localFiles[angle]) {
-        // Revoke previous blob URL to prevent memory leaks
-        if (blobUrls[angle]) {
-            URL.revokeObjectURL(blobUrls[angle]);
-        }
-
-        // Create new blob URL for zero-buffering playback
-        const blobUrl = URL.createObjectURL(localFiles[angle]);
-        blobUrls[angle] = blobUrl;
-
-        player.src = blobUrl;
-        player.load();
-
-        // Update video info for local file
-        const file = localFiles[angle];
-        const infoHtml = `
-            <div class="info-card">
-                <div class="info-label">Source</div>
-                <div class="info-value">Local File (Blob URL)</div>
-                <p style="color: #28a745; margin-top: 5px;">⚡ Zero buffering!</p>
-            </div>
-            <div class="info-card">
-                <div class="info-label">File Name</div>
-                <div class="info-value" style="font-size: 14px;">${file.name}</div>
-            </div>
-            <div class="info-card">
-                <div class="info-label">File Size</div>
-                <div class="info-value">${formatBytes(file.size)}</div>
-            </div>
-            <div class="info-card">
-                <div class="info-label">Angle</div>
-                <div class="info-value">${angle}</div>
-            </div>
-        `;
-        document.getElementById('video-info').innerHTML = infoHtml;
-
-        return;
-    }
-
-    // Otherwise, use HTTP streaming (existing behavior)
     const video = scannedVideos[currentDate].videos.find(v => v.angle_short === angle);
 
     if (!video) {
@@ -547,134 +485,4 @@ function formatBytes(bytes) {
 function validateTimeFormat(time) {
     const regex = /^([0-9]{2}):([0-9]{2}):([0-9]{2})$/;
     return regex.test(time);
-}
-
-// Handle local file selection (blob URL approach for zero buffering)
-function handleLocalFiles(event) {
-    console.log('handleLocalFiles called', event);
-    const files = Array.from(event.target.files);
-    console.log('Selected files:', files.length, files);
-
-    if (files.length === 0) {
-        console.log('No files selected');
-        return;
-    }
-
-    // Parse filenames to detect angles (same pattern as backend: MM-DD ANGLE.ext)
-    const anglePattern = /(\d{1,2})-(\d{1,2})\s+(FR|FL|NL|NR)(?:_\w+)?/i;
-    const parsedFiles = {};
-    let detectedDate = null;
-
-    for (const file of files) {
-        const match = file.name.match(anglePattern);
-        if (match) {
-            const date = `${match[1].padStart(2, '0')}-${match[2].padStart(2, '0')}`;
-            const angle = match[3].toUpperCase();
-
-            if (!detectedDate) detectedDate = date;
-
-            parsedFiles[angle] = file;
-        }
-    }
-
-    if (Object.keys(parsedFiles).length === 0) {
-        alert('No videos found with valid naming pattern (e.g., "10-2 FR.mp4").\n\nAlternatively, you can manually select files and assign angles.');
-        // Fallback: allow manual angle assignment
-        manualFileSelection(files);
-        return;
-    }
-
-    // Set up for local file playback
-    useLocalFiles = true;
-    localFiles = parsedFiles;
-    currentDate = detectedDate;
-
-    // Show preview and game marking sections
-    document.getElementById('preview-section').style.display = 'block';
-    document.getElementById('game-marking-section').style.display = 'block';
-    document.getElementById('game-date').value = detectedDate;
-
-    // Get available angles
-    const availableAngles = Object.keys(parsedFiles);
-    const firstAvailableAngle = availableAngles[0] || 'FR';
-
-    // Create angle selector buttons
-    const angleSelectorHtml = ['FR', 'FL', 'NL', 'NR'].map(angle => {
-        const hasFile = availableAngles.includes(angle);
-        const isFirst = angle === firstAvailableAngle;
-        return `
-            <button
-                class="angle-btn ${isFirst ? 'active' : ''}"
-                data-angle="${angle}"
-                ${!hasFile ? 'disabled' : ''}
-                onclick="switchAngle('${angle}')">
-                ${angle} ${!hasFile ? '(Not Loaded)' : ''}
-            </button>
-        `;
-    }).join('');
-
-    document.getElementById('angle-selector').innerHTML = angleSelectorHtml;
-
-    // Update scan results
-    let resultsHtml = `
-        <div class="info-card" style="background: #d4edda; border-left-color: #28a745;">
-            <div class="info-label">✓ Local Files Loaded (Zero Buffering Mode)</div>
-            <div class="info-value">${availableAngles.length} angle${availableAngles.length > 1 ? 's' : ''} loaded</div>
-            <p style="color: #155724; margin-top: 10px;">
-                Angles: ${availableAngles.join(', ')}
-            </p>
-            <p style="font-size: 12px; margin-top: 5px; color: #666;">
-                Files loaded directly from your computer using blob URLs - instant seeking with zero buffering!
-            </p>
-        </div>
-    `;
-    document.getElementById('scan-results').innerHTML = resultsHtml;
-
-    // Load first available video
-    switchAngle(firstAvailableAngle);
-
-    console.log('Local files loaded:', parsedFiles);
-}
-
-// Fallback for manual file selection
-function manualFileSelection(files) {
-    if (files.length === 0) return;
-
-    // Simple approach: assume files are in order FR, FL, NL, NR
-    const angles = ['FR', 'FL', 'NL', 'NR'];
-    const parsedFiles = {};
-
-    files.forEach((file, index) => {
-        if (index < angles.length) {
-            parsedFiles[angles[index]] = file;
-        }
-    });
-
-    useLocalFiles = true;
-    localFiles = parsedFiles;
-    currentDate = new Date().toISOString().slice(5, 10).replace('-', '-'); // MM-DD format
-
-    document.getElementById('preview-section').style.display = 'block';
-    document.getElementById('game-marking-section').style.display = 'block';
-    document.getElementById('game-date').value = currentDate;
-
-    const availableAngles = Object.keys(parsedFiles);
-    const firstAvailableAngle = availableAngles[0];
-
-    const angleSelectorHtml = angles.map(angle => {
-        const hasFile = availableAngles.includes(angle);
-        const isFirst = angle === firstAvailableAngle;
-        return `
-            <button
-                class="angle-btn ${isFirst ? 'active' : ''}"
-                data-angle="${angle}"
-                ${!hasFile ? 'disabled' : ''}
-                onclick="switchAngle('${angle}')">
-                ${angle} ${!hasFile ? '(Not Loaded)' : ''}
-            </button>
-        `;
-    }).join('');
-
-    document.getElementById('angle-selector').innerHTML = angleSelectorHtml;
-    switchAngle(firstAvailableAngle);
 }

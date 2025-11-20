@@ -70,8 +70,10 @@
             padding: 10px 20px;
             border: 2px solid #ddd;
             background: white;
+            color: #333;
             border-radius: 6px;
             cursor: pointer;
+            font-weight: 600;
             transition: all 0.3s;
         }
 
@@ -201,14 +203,10 @@
         <!-- Video Scanner -->
         <section class="card">
             <h2>📂 Input Videos</h2>
-            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                <button id="scan-btn" class="btn btn-primary">Scan /input Directory</button>
-                <button id="load-local-btn" class="btn btn-secondary">📁 Load Local Files (Zero Buffering)</button>
-            </div>
-            <input type="file" id="local-file-input" accept="video/*" multiple style="display: none;">
+            <button id="scan-btn" class="btn btn-primary">Scan /input Directory</button>
 
             <div id="scan-results" style="margin-top: 20px;">
-                <p style="color: #666;">Click "Scan" to detect videos from /input directory, or "Load Local Files" to browse for videos directly (recommended for smooth playback)</p>
+                <p style="color: #666;">Click "Scan" to detect videos from /input directory</p>
             </div>
         </section>
 
