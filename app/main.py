@@ -622,6 +622,103 @@ async def stream_video(date: str, angle: str, request: Request):
         logger.error(f"Error streaming video: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Offset storage directory
+OFFSET_STORAGE_DIR = Path("offsets")
+OFFSET_STORAGE_DIR.mkdir(exist_ok=True)
+
+@app.post("/api/input-videos/offsets/{date}")
+async def save_offsets(date: str, request: dict):
+    """
+    Save video synchronization offsets for a specific date
+
+    Request body:
+    {
+        "offsets": {
+            "FL": 0.5,
+            "NL": -0.25,
+            "NR": 1.0
+        }
+    }
+    """
+    try:
+        offsets = request.get('offsets', {})
+
+        # Validate offsets
+        valid_angles = ['FL', 'NL', 'NR']
+        for angle in offsets.keys():
+            if angle not in valid_angles:
+                raise HTTPException(status_code=400, detail=f"Invalid angle: {angle}")
+            if not isinstance(offsets[angle], (int, float)):
+                raise HTTPException(status_code=400, detail=f"Offset for {angle} must be a number")
+            if abs(offsets[angle]) > 30:
+                raise HTTPException(status_code=400, detail=f"Offset for {angle} must be between -30 and 30 seconds")
+
+        # Save offsets to JSON file
+        offset_file = OFFSET_STORAGE_DIR / f"{date}.json"
+        with open(offset_file, 'w') as f:
+            json.dump({
+                'date': date,
+                'offsets': offsets,
+                'updated_at': datetime.now().isoformat()
+            }, f, indent=2)
+
+        logger.info(f"Saved offsets for date {date}: {offsets}")
+
+        return {
+            'success': True,
+            'message': f'Offsets saved for date {date}',
+            'offsets': offsets
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving offsets: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/input-videos/offsets/{date}")
+async def get_offsets(date: str):
+    """
+    Get video synchronization offsets for a specific date
+
+    Returns:
+    {
+        "success": true,
+        "offsets": {
+            "FL": 0.5,
+            "NL": -0.25,
+            "NR": 1.0
+        }
+    }
+    """
+    try:
+        offset_file = OFFSET_STORAGE_DIR / f"{date}.json"
+
+        if not offset_file.exists():
+            # Return default offsets (all zeros)
+            return {
+                'success': True,
+                'offsets': {
+                    'FL': 0,
+                    'NL': 0,
+                    'NR': 0
+                },
+                'message': 'No saved offsets found, using defaults'
+            }
+
+        with open(offset_file, 'r') as f:
+            data = json.load(f)
+
+        return {
+            'success': True,
+            'offsets': data.get('offsets', {}),
+            'updated_at': data.get('updated_at')
+        }
+
+    except Exception as e:
+        logger.error(f"Error loading offsets: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/input-videos/jobs")
 async def list_input_jobs():
     """List all defined input video jobs"""
