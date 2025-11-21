@@ -1,0 +1,7 @@
+Instance ID: i-0c855c41098d07372
+Public IP: 13.218.240.175
+Region: us-east-1
+Instance Type: t3.large
+Key Pair: uball-basketball-key.pem
+SSH Command: ssh -i uball-basketball-key.pem ubuntu@13.218.240.175
+Tunnel Command: ssh -L 8000:localhost:8000 -i uball-basketball-key.pem ubuntu@13.218.240.175
