@@ -1,0 +1,71 @@
+name: Auto Deploy Jetson
+
+on:
+  # push:
+  #   branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python 3.9
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.9
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Run Tests
+      run: |
+        python -m unittest discover tests
+
+  deploy-prod:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Check Connectivity
+      env:
+        PRIVATE_KEY: ${{ secrets.JETSON_SSH_KEY }}
+        HOST: ${{ secrets.JETSON_HOST }}
+        USER: jetson
+      run: |
+        echo "$PRIVATE_KEY" > private_key && chmod 600 private_key
+        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i private_key ${USER}@${HOST} "uptime"
+
+    - name: Deploy to Production Jetson
+      env:
+        PRIVATE_KEY: ${{ secrets.JETSON_SSH_KEY }}
+        HOST: ${{ secrets.JETSON_HOST }}
+        USER: jetson
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+        AWS_S3_REGION: ${{ secrets.AWS_S3_REGION }}
+      run: |
+        echo "$PRIVATE_KEY" > private_key && chmod 600 private_key
+        ssh -o StrictHostKeyChecking=no -i private_key ${USER}@${HOST} "
+          cd ~/Uball_ingestion_pipeline &&
+          git pull origin main &&
+          
+          # Update .env file from secrets
+          echo 'AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID' > .env &&
+          echo 'AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY' >> .env &&
+          echo 'AWS_S3_BUCKET=$AWS_S3_BUCKET' >> .env &&
+          echo 'AWS_S3_REGION=$AWS_S3_REGION' >> .env &&
+          
+          source venv/bin/activate &&
+          pip install -r requirements.txt &&
+          
+          # Ensure service is enabled and started
+          sudo systemctl enable basketball-pipeline &&
+          sudo systemctl restart basketball-pipeline
+        "

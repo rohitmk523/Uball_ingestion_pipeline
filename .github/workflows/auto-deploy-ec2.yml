@@ -1,4 +1,4 @@
-name: Auto Pipeline
+name: Auto Deploy EC2
 
 on:
   push:
