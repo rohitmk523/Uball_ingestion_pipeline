@@ -64,10 +64,7 @@ jobs:
 
   deploy-jetson:
     needs: test
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    # Only run if Jetson secrets are configured
-    if: ${{ secrets.JETSON_HOST != '' }}
+    if: github.ref == 'refs/heads/main' && secrets.JETSON_HOST != ''
     steps:
     - uses: actions/checkout@v3
     
