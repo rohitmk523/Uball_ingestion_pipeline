@@ -579,7 +579,7 @@ async def stream_video(date: str, angle: str, request: Request):
                     video_file.seek(start)
                     remaining = chunk_size
                     while remaining > 0:
-                        read_size = min(8192, remaining)  # Read in 8KB chunks
+                        read_size = min(1024 * 1024, remaining)  # Read in 1MB chunks
                         data = video_file.read(read_size)
                         if not data:
                             break
