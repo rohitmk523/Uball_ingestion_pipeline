@@ -9,14 +9,27 @@ from .models import Config
 logger = logging.getLogger(__name__)
 
 class S3Uploader:
+    _client = None
+    _client_config_hash = None
+
     def __init__(self, config: Config):
-        self.s3_client = boto3.client(
-            's3',
-            aws_access_key_id=config.aws_access_key,
-            aws_secret_access_key=config.aws_secret_key,
-            region_name=config.s3_region
-        )
+        self.config = config
         self.bucket = config.s3_bucket
+        
+        # Reuse client if config hasn't changed
+        current_hash = hash((config.aws_access_key, config.aws_secret_key, config.s3_region))
+        
+        if S3Uploader._client is None or S3Uploader._client_config_hash != current_hash:
+            logger.info("Initializing new S3 client")
+            S3Uploader._client = boto3.client(
+                's3',
+                aws_access_key_id=config.aws_access_key,
+                aws_secret_access_key=config.aws_secret_key,
+                region_name=config.s3_region
+            )
+            S3Uploader._client_config_hash = current_hash
+            
+        self.s3_client = S3Uploader._client
 
     async def upload_file(self, file_path: str, s3_key: str, max_retries: int = 3) -> bool:
         """Upload file to S3 with retry logic"""

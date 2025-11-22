@@ -71,14 +71,16 @@ class ResourceManager:
 
         # GPU can handle more concurrent sessions (3-5 typically)
         if has_gpu:
-            gpu_limit = 4
+            # Jetson Nano shares RAM with GPU, so we must be conservative
+            # 4 concurrent 4K streams might OOM a 8GB Nano
+            gpu_limit = 2 
             recommended = min(mem_based_limit, gpu_limit)
         else:
             # CPU encoding is much heavier
             recommended = min(mem_based_limit, cpu_based_limit)
 
-        # Ensure at least 1, at most 8
-        recommended = max(1, min(recommended, 8))
+        # Ensure at least 1, at most 4 for stability on edge devices
+        recommended = max(1, min(recommended, 4))
 
         logger.info(f"Recommended max concurrent FFmpeg processes: {recommended}")
         return recommended
@@ -296,11 +298,8 @@ class ParallelProcessor:
                 # S3 key: 10-02/Game-1/10-02_game1_farright.mp4
                 s3_key = f"{job.s3_prefix}/{job.game_id}_{angle_full}.mp4"
 
-                # Update config with new bucket
-                upload_config = Config(**self.config.dict())
-                upload_config.s3_bucket = "uball-videos-production"
-
-                await upload_to_s3(str(final_path), f"Games/{s3_key}", upload_config)
+                # Use configured bucket
+                await upload_to_s3(str(final_path), f"Games/{s3_key}", self.config)
 
                 # Step 5: Cleanup
                 final_path.unlink()

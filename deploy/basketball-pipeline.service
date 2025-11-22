@@ -1,0 +1,16 @@
+[Unit]
+Description=Basketball Video Processing Pipeline
+After=network.target
+
+[Service]
+Type=simple
+User=jetson
+WorkingDirectory=/home/jetson/basketball-pipeline
+ExecStart=/home/jetson/basketball-pipeline/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+Environment=PATH=/home/jetson/basketball-pipeline/venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

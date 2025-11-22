@@ -24,15 +24,10 @@ from .input_video_scanner import scan_input_directory, get_videos_by_date, valid
 from .parallel_processor import ParallelProcessor, GameJob, ResourceManager
 from .audio_sync import synchronize_videos, AudioSyncError
 
+from .logging_config import setup_logging
+
 # Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/pipeline.log'),
-        logging.StreamHandler()
-    ]
-)
+setup_logging()
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Basketball Video Processing Pipeline", version="1.0.0")
