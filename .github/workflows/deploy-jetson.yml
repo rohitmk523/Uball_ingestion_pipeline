@@ -8,6 +8,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+
+    - name: Check Connectivity
+      env:
+        PRIVATE_KEY: ${{ secrets.JETSON_SSH_KEY }}
+        HOST: ${{ secrets.JETSON_HOST }}
+        USER: jetson
+      run: |
+        echo "$PRIVATE_KEY" > private_key && chmod 600 private_key
+        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i private_key ${USER}@${HOST} "uptime"
     
     - name: Deploy to Jetson
       env:
