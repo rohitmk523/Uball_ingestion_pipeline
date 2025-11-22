@@ -1,0 +1,39 @@
+name: Deploy to EC2
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy-ec2:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Deploy to EC2
+      env:
+        PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
+        HOST: ${{ secrets.EC2_HOST }}
+        USER: ubuntu
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+        AWS_S3_REGION: ${{ secrets.AWS_S3_REGION }}
+      run: |
+        echo "$PRIVATE_KEY" > private_key && chmod 600 private_key
+        ssh -o StrictHostKeyChecking=no -i private_key ${USER}@${HOST} "
+          cd ~/Uball_ingestion_pipeline &&
+          git pull origin main &&
+          
+          # Update .env file from secrets
+          echo 'AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID' > .env &&
+          echo 'AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY' >> .env &&
+          echo 'AWS_S3_BUCKET=$AWS_S3_BUCKET' >> .env &&
+          echo 'AWS_S3_REGION=$AWS_S3_REGION' >> .env &&
+          
+          source venv/bin/activate &&
+          pip install -r requirements.txt &&
+          
+          # Ensure service is enabled and started
+          sudo systemctl enable basketball-pipeline &&
+          sudo systemctl restart basketball-pipeline
+        "
