@@ -29,22 +29,31 @@ jobs:
     needs: test
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        host: ["jetson-nano-001", "jetson-nano-002"]
     steps:
     - uses: actions/checkout@v3
     
+    - name: Connect to Tailscale
+      uses: tailscale/github-action@v2
+      with:
+        oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
+        oauth-secret: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
+        tags: tag:ci
+        
     - name: Check Connectivity
       env:
         PRIVATE_KEY: ${{ secrets.JETSON_SSH_KEY }}
-        HOST: ${{ secrets.JETSON_HOST }}
         USER: jetson
       run: |
         echo "$PRIVATE_KEY" > private_key && chmod 600 private_key
-        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i private_key ${USER}@${HOST} "uptime"
+        # Use the matrix host (MagicDNS name)
+        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i private_key ${USER}@${{ matrix.host }} "uptime"
 
     - name: Deploy to Production Jetson
       env:
         PRIVATE_KEY: ${{ secrets.JETSON_SSH_KEY }}
-        HOST: ${{ secrets.JETSON_HOST }}
         USER: jetson
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -52,7 +61,7 @@ jobs:
         AWS_S3_REGION: ${{ secrets.AWS_S3_REGION }}
       run: |
         echo "$PRIVATE_KEY" > private_key && chmod 600 private_key
-        ssh -o StrictHostKeyChecking=no -i private_key ${USER}@${HOST} "
+        ssh -o StrictHostKeyChecking=no -i private_key ${USER}@${{ matrix.host }} "
           cd ~/Uball_ingestion_pipeline &&
           git pull origin main &&
           
