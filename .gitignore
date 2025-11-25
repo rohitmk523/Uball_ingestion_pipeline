@@ -67,3 +67,7 @@ Thumbs.db
 
 # Security keys
 *.pem
+jetson-key.pem
+
+# Large data files
+app/static/game_data.json

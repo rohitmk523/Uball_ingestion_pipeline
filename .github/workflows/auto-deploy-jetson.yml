@@ -40,11 +40,12 @@ jobs:
       with:
         authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
         tags: tag:ci
+        args: --ephemeral
         
     - name: Check Connectivity
       env:
         PRIVATE_KEY: ${{ secrets.JETSON_SSH_KEY }}
-        USER: jetson
+        USER: developer
       run: |
         echo "$PRIVATE_KEY" > private_key && chmod 600 private_key
         # Use the matrix host (MagicDNS name)
@@ -53,7 +54,7 @@ jobs:
     - name: Deploy to Production Jetson
       env:
         PRIVATE_KEY: ${{ secrets.JETSON_SSH_KEY }}
-        USER: jetson
+        USER: developer
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}

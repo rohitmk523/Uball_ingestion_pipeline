@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UWB Game Visualization</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a1a1a;
+            color: #e0e0e0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+        }
+
+        #container {
+            position: relative;
+            margin-top: 20px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+
+        canvas {
+            background-color: #2a2a2a;
+            border-radius: 4px;
+        }
+
+        #controls {
+            margin-top: 20px;
+            width: 1000px;
+            background: #333;
+            padding: 15px;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .control-group {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            width: 100%;
+        }
+
+        .calibration {
+            background: #444;
+            padding: 10px;
+            border-radius: 4px;
+            flex-wrap: wrap;
+        }
+
+        .calibration h3 {
+            margin: 0 10px 0 0;
+            font-size: 1em;
+            color: #aaa;
+        }
+
+        .calibration label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.9em;
+        }
+
+        .calibration input[type="range"] {
+            width: 100px;
+        }
+
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        input[type="range"] {
+            flex-grow: 1;
+        }
+
+        #time-display {
+            font-family: monospace;
+            font-size: 1.1em;
+            min-width: 180px;
+        }
+
+        .stats {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #888;
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2em;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            z-index: 100;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="loading">Loading Data...</div>
+
+    <div id="container">
+        <canvas id="courtCanvas"></canvas>
+    </div>
+
+    <div id="controls">
+        <div class="control-group">
+            <button id="playPauseBtn">Play</button>
+            <input type="range" id="seekBar" min="0" max="100" value="0" step="1">
+            <div id="time-display">00:00:00.000</div>
+            <select id="speedSelect">
+                <option value="0.5">0.5x</option>
+                <option value="1" selected>1.0x</option>
+                <option value="2">2.0x</option>
+                <option value="5">5.0x</option>
+                <option value="10">10.0x</option>
+            </select>
+        </div>
+        <div class="control-group calibration">
+            <h3>Calibration</h3>
+            <label>Scale X: <input type="range" id="calScaleX" min="0.1" max="10" step="0.1" value="1"><span
+                    id="valScaleX">1.0</span></label>
+            <label>Scale Y: <input type="range" id="calScaleY" min="0.1" max="10" step="0.1" value="1"><span
+                    id="valScaleY">1.0</span></label>
+            <label>Offset X: <input type="range" id="calOffsetX" min="-2000" max="2000" step="10" value="0"><span
+                    id="valOffsetX">0</span></label>
+            <label>Offset Y: <input type="range" id="calOffsetY" min="-2000" max="2000" step="10" value="0"><span
+                    id="valOffsetY">0</span></label>
+            <label>Smoothing: <input type="range" id="calSmoothing" min="1" max="30" step="1" value="5"><span
+                    id="valSmoothing">5</span> frames</label>
+            <label>Trail: <input type="checkbox" id="showTrails" checked></label>
+        </div>
+    </div>
+    <div class="stats" id="statsDisplay"></div>
+
+    <script>
+        const canvas = document.getElementById('courtCanvas');
+        const ctx = canvas.getContext('2d');
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const seekBar = document.getElementById('seekBar');
+        const timeDisplay = document.getElementById('time-display');
+        const speedSelect = document.getElementById('speedSelect');
+        const loading = document.getElementById('loading');
+        const statsDisplay = document.getElementById('statsDisplay');
+
+        let gameData = null;
+        let timestamps = [];
+        let currentIndex = 0;
+        let isPlaying = false;
+        let animationId = null;
+        let playbackSpeed = 1.0;
+        let lastFrameTime = 0;
+
+        // Configuration
+        const PADDING = 50;
+        let SCALE = 1;
+        let OFFSET_X = 0;
+        let OFFSET_Y = 0;
+
+        // Load Data
+        fetch('game_data.json')
+            .then(response => response.json())
+            .then(data => {
+                gameData = data;
+                timestamps = Object.keys(data.logs);
+                init();
+                loading.style.display = 'none';
+            })
+            .catch(err => {
+                console.error("Error loading data:", err);
+                loading.textContent = "Error loading data. Check console.";
+            });
+
+        function init() {
+            // Setup Canvas Size based on Court Bounds
+            const cb = gameData.court_bounds;
+            const courtWidth = cb.max_x - cb.min_x;
+            const courtHeight = cb.max_y - cb.min_y;
+
+            // Target width for visualization
+            const TARGET_WIDTH = 1000;
+            SCALE = TARGET_WIDTH / courtWidth;
+
+            canvas.width = TARGET_WIDTH + (PADDING * 2);
+            canvas.height = (courtHeight * SCALE) + (PADDING * 2);
+
+            // Calculate offsets to center court
+            OFFSET_X = PADDING - (cb.min_x * SCALE);
+            OFFSET_Y = canvas.height - PADDING - (cb.max_y * SCALE); // Flip Y for standard cartesian if needed, but DXF usually Y-up. 
+            // Wait, HTML Canvas is Y-down. DXF is usually Y-up. 
+            // Let's assume we need to flip Y.
+
+            seekBar.max = timestamps.length - 1;
+
+            drawFrame(0);
+
+            // Event Listeners
+            playPauseBtn.addEventListener('click', togglePlay);
+            seekBar.addEventListener('input', (e) => {
+                currentIndex = parseInt(e.target.value);
+                drawFrame(currentIndex);
+            });
+            speedSelect.addEventListener('change', (e) => {
+                playbackSpeed = parseFloat(e.target.value);
+            });
+        }
+
+        function togglePlay() {
+            isPlaying = !isPlaying;
+            playPauseBtn.textContent = isPlaying ? "Pause" : "Play";
+            if (isPlaying) {
+                lastFrameTime = performance.now();
+                animate();
+            } else {
+                cancelAnimationFrame(animationId);
+            }
+        }
+
+        function animate(currentTime) {
+            if (!isPlaying) return;
+
+            const elapsed = currentTime - lastFrameTime;
+
+            // Fixed 30 FPS playback
+            // Frame duration = 1000ms / 30 = 33.33ms
+            // Adjust by playback speed
+            const frameDuration = 33.33 / playbackSpeed;
+
+            if (elapsed > frameDuration) {
+                currentIndex++;
+                if (currentIndex >= timestamps.length) {
+                    currentIndex = 0; // Loop
+                }
+                seekBar.value = currentIndex;
+                drawFrame(currentIndex);
+                lastFrameTime = currentTime;
+            }
+
+            animationId = requestAnimationFrame(animate);
+        }
+
+        function worldToScreen(x, y) {
+            // DXF Y is up, Canvas Y is down.
+            // We need to map [min_y, max_y] to [height-padding, padding]
+
+            const sx = (x * SCALE) + OFFSET_X;
+            // Flip Y: 
+            // normalized_y = (y - min_y) / (max_y - min_y)
+            // screen_y = height - padding - (normalized_y * height_draw_area)
+
+            // Actually, let's just use the calculated offset but subtract from height for Y-flip
+            // const sy = canvas.height - ((y * SCALE) + OFFSET_Y); 
+            // Wait, OFFSET_Y was calculated for standard translation.
+
+            // Let's redo Y flip simply:
+            // Canvas Y = Canvas Height - Padding - (Y - MinY) * Scale
+            const sy = canvas.height - PADDING - ((y - gameData.court_bounds.min_y) * SCALE);
+
+            return { x: sx, y: sy };
+        }
+
+        function drawCourt() {
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+
+            gameData.court.forEach(item => {
+                if (item.type === 'line') {
+                    const s = worldToScreen(item.start.x, item.start.y);
+                    const e = worldToScreen(item.end.x, item.end.y);
+                    ctx.moveTo(s.x, s.y);
+                    ctx.lineTo(e.x, e.y);
+                } else if (item.type === 'circle') {
+                    const c = worldToScreen(item.center.x, item.center.y);
+                    ctx.moveTo(c.x + (item.radius * SCALE), c.y);
+                    ctx.arc(c.x, c.y, item.radius * SCALE, 0, Math.PI * 2);
+                } else if (item.type === 'arc') {
+                    const c = worldToScreen(item.center.x, item.center.y);
+                    // DXF angles are in degrees, usually CCW from X-axis.
+                    // Canvas arcs are radians, clockwise (default) or CCW.
+                    // Since we flip Y, the rotation direction flips too.
+                    // DXF: CCW. Canvas with Y-flip: CW visually matches DXF CCW? 
+                    // Let's try converting to radians and drawing.
+                    const startRad = item.start_angle * (Math.PI / 180);
+                    const endRad = item.end_angle * (Math.PI / 180);
+
+                    // Note: with Y-flip, angles might need mirroring (360 - angle)
+                    // Let's try standard first.
+                    ctx.moveTo(c.x + Math.cos(startRad) * item.radius * SCALE, c.y - Math.sin(startRad) * item.radius * SCALE);
+                    ctx.arc(c.x, c.y, item.radius * SCALE, -startRad, -endRad, true);
+                }
+            });
+            ctx.stroke();
+        }
+
+        // Calibration State
+        let cal = {
+            scaleX: 1.0,
+            scaleY: 1.0,
+            offsetX: 0,
+            offsetY: 0,
+            smoothing: 5
+        };
+        let showTrails = true;
+        const TRAIL_LENGTH = 60; // Frames
+
+        // Calibration Elements
+        const elCalScaleX = document.getElementById('calScaleX');
+        const elCalScaleY = document.getElementById('calScaleY');
+        const elCalOffsetX = document.getElementById('calOffsetX');
+        const elCalOffsetY = document.getElementById('calOffsetY');
+        const elCalSmoothing = document.getElementById('calSmoothing');
+        const elShowTrails = document.getElementById('showTrails');
+
+        function updateCalibration() {
+            cal.scaleX = parseFloat(elCalScaleX.value);
+            cal.scaleY = parseFloat(elCalScaleY.value);
+            cal.offsetX = parseFloat(elCalOffsetX.value);
+            cal.offsetY = parseFloat(elCalOffsetY.value);
+            cal.smoothing = parseInt(elCalSmoothing.value);
+
+            document.getElementById('valScaleX').textContent = cal.scaleX.toFixed(1);
+            document.getElementById('valScaleY').textContent = cal.scaleY.toFixed(1);
+            document.getElementById('valOffsetX').textContent = cal.offsetX;
+            document.getElementById('valOffsetY').textContent = cal.offsetY;
+            document.getElementById('valSmoothing').textContent = cal.smoothing;
+
+            showTrails = elShowTrails.checked;
+
+            if (!isPlaying) drawFrame(currentIndex);
+        }
+
+        [elCalScaleX, elCalScaleY, elCalOffsetX, elCalOffsetY, elCalSmoothing, elShowTrails].forEach(el => {
+            el.addEventListener('input', updateCalibration);
+        });
+
+        function getSmoothedPosition(tagId, currentIndex, windowSize) {
+            let sumX = 0;
+            let sumY = 0;
+            let count = 0;
+
+            // Look back 'windowSize' frames
+            for (let i = 0; i < windowSize; i++) {
+                if (currentIndex - i < 0) break;
+
+                const frameKey = timestamps[currentIndex - i];
+                const frameData = gameData.logs[frameKey];
+                const player = frameData.find(p => p.tag_id === tagId);
+
+                if (player) {
+                    sumX += player.x;
+                    sumY += player.y;
+                    count++;
+                }
+            }
+
+            if (count === 0) return null;
+
+            return {
+                x: sumX / count,
+                y: sumY / count
+            };
+        }
+
+        function drawPlayers(tsKey, index) {
+            const players = gameData.logs[tsKey];
+            if (!players) return;
+
+            // Draw Trails
+            if (showTrails) {
+                // Find unique tag IDs in current frame
+                const currentTags = players.map(p => p.tag_id);
+
+                currentTags.forEach(tagId => {
+                    ctx.strokeStyle = getColor(tagId);
+                    ctx.lineWidth = 2;
+                    ctx.globalAlpha = 0.5;
+                    ctx.beginPath();
+
+                    let started = false;
+                    // Look back
+                    for (let i = 1; i < TRAIL_LENGTH; i++) {
+                        if (index - i < 0) break;
+
+                        // Use smoothed position for trails too
+                        const pos = getSmoothedPosition(tagId, index - i, cal.smoothing);
+
+                        if (pos) {
+                            const wx = (pos.x * cal.scaleX) + cal.offsetX;
+                            const wy = (pos.y * cal.scaleY) + cal.offsetY;
+                            const s = worldToScreen(wx, wy);
+
+                            if (!started) {
+                                ctx.moveTo(s.x, s.y);
+                                started = true;
+                            } else {
+                                ctx.lineTo(s.x, s.y);
+                            }
+                        }
+                    }
+                    ctx.stroke();
+                    ctx.globalAlpha = 1.0;
+                });
+            }
+
+            players.forEach(p => {
+                // Get Smoothed Position
+                const pos = getSmoothedPosition(p.tag_id, index, cal.smoothing);
+
+                if (pos) {
+                    // Apply Calibration transform
+                    const wx = (pos.x * cal.scaleX) + cal.offsetX;
+                    const wy = (pos.y * cal.scaleY) + cal.offsetY;
+
+                    const s = worldToScreen(wx, wy);
+
+                    ctx.fillStyle = getColor(p.tag_id);
+                    ctx.beginPath();
+                    ctx.arc(s.x, s.y, 8, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Tag ID
+                    ctx.fillStyle = 'white';
+                    ctx.font = '10px Arial';
+                    ctx.fillText(p.tag_id.slice(-4), s.x + 10, s.y);
+                }
+            });
+        }
+
+        const colorCache = {};
+        function getColor(id) {
+            if (!colorCache[id]) {
+                const hue = Math.floor(Math.random() * 360);
+                colorCache[id] = `hsl(${hue}, 70%, 50%)`;
+            }
+            return colorCache[id];
+        }
+
+        function drawFrame(index) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            drawCourt();
+
+            const tsKey = timestamps[index];
+            if (tsKey) {
+                drawPlayers(tsKey, index);
+
+                // Display Frame Number
+                timeDisplay.textContent = `Frame: ${index}`;
+
+                // Update stats
+                const pCount = gameData.logs[tsKey].length;
+                statsDisplay.textContent = `Frame: ${index}/${timestamps.length} | Players: ${pCount}`;
+            }
+        }
+    </script>
+</body>
+
+</html>
